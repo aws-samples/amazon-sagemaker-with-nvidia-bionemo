@@ -18,6 +18,10 @@ This repository contains example of how to use the [BioNeMo framework container]
 
 ![Solution architecture for running BioNeMo training and inference on Amazon SageMaker](img/bionemo-sm-arch.png)
 
+## Configuration
+
+BioNeMo uses [Hydra](https://hydra.cc/docs/intro/) to manage the training job parameters. These are stored in .yaml files and passed to the training job at runtime. For this reason, you do not need to pass many hyperparameters to your SageMaker Estimator - sometimes only the name of your configuration file! You can find a basic Hydra tutorial [here](https://hydra.cc/docs/tutorials/basic/your_first_app/simple_cli/).
+
 ## Setup
 
 Before you create a BioNeMo training job, follow these steps to generate some NGC API credentials and store them in AWS Secrets Manager.
