@@ -58,6 +58,16 @@ Before you create a BioNeMo training job, follow these steps to generate some NG
 
 12. Select the remaining default options to create your secret.
 
+## Examples
+
+### Generate ESM-1nv sequence embeddings using an Amazon SageMaker Real-Time Inference Endpoint
+
+The **deploy-ESM-embeddings-server.ipynb** notebook describes how to deploy the pretrained esm-1nv model as an endpoint for generating sequence embeddings. In this case, all of the required configuration files are already included in the BioNeMo framwork. You only need to specify the name of your model and your NGC API secret name in AWS Secrets Manager.
+
+### Train ESM-1nv on Protein Sequences from UniProt
+
+The **train-ESM.ipynb** notebook describes how to pretrain or fine-tune the esm-1nv model using a sequence data from the UniProt sequence database. In this case, you will need to create a configuration file and upload it with the training script when creating the job. You should not need to modify the training script. Once the training has finished the Nemo checkpoints will be available in S3.
+
 ## Security
 
 Amazon S3 now applies server-side encryption with Amazon S3 managed keys (SSE-S3) as the base level of encryption for every bucket in Amazon S3. However, for particularly sensitive data or models you may want to apply a different server- or client-side encrption method, [as described in the Amazon S3 documentation](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html).
