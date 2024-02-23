@@ -1,0 +1,205 @@
+#!/usr/bin/env python
+
+# This file implements the scoring service shell. You don't necessarily need to modify it for various
+# algorithms.
+
+# Required environment variables:
+#
+
+import multiprocessing
+import os
+import signal
+import subprocess
+import sys
+import re
+import boto3
+import logging
+import shutil
+from botocore.exceptions import ClientError
+import json
+from time import sleep
+cpu_count = multiprocessing.cpu_count()
+
+model_server_timeout = os.environ.get("MODEL_SERVER_TIMEOUT", 60)
+model_server_workers = int(os.environ.get("MODEL_SERVER_WORKERS", cpu_count))
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%m/%d/%Y %H:%M:%S",
+    level=logging.INFO,
+)
+
+def sigterm_handler(nginx_pid, gunicorn_pid, pytriton_pid):
+    try:
+        os.kill(nginx_pid, signal.SIGQUIT)
+    except OSError:
+        pass
+    try:
+        os.kill(gunicorn_pid, signal.SIGQUIT)
+    except OSError:
+        pass
+    try:
+        os.kill(pytriton_pid, signal.SIGQUIT)
+    except OSError:
+        pass
+    sys.exit(0)
+
+
+def parse_conf_path(
+    model_name: str,
+    root_path: str = "/workspace/bionemo/examples",
+) -> str:
+    """Parse the conf path from the model name."""
+
+    if model_name == "megamolbart":
+        conf_path = "molecule/megamolbart/conf"
+    elif model_name == "prott5nv":
+        conf_path = "protein/prott5nv/conf"
+    elif model_name == "esm1nv":
+        conf_path = "protein/esm1nv/conf"
+    elif re.match(r"diffdock", model_name):
+        conf_path = "molecule/diffdock/conf"
+    elif re.match(r"esm2", model_name):
+        conf_path = "protein/esm2nv/conf"
+    elif re.match(r"equidock", model_name):
+        conf_path = "protein/equidock/conf"
+    else:
+        raise ValueError(f"Invalid model name: {model_name}")
+
+    return os.path.join(root_path, conf_path)
+
+
+def set_ngc_credentials(secret_name: str) -> None:
+    """Get NVIDIA NGC API Key and org from AWS Secrets Manager"""
+
+    # Create a Secrets Manager client
+    client = boto3.client(
+        "secretsmanager", region_name=os.environ.get("AWS_REGION", "us-west-2")
+    )
+
+    logging.info("Retrieving NGC credentials from AWS Secrets Manager.")
+
+    try:
+        get_secret_value_response = client.get_secret_value(SecretId=secret_name)
+    except ClientError as e:
+        # For a list of exceptions thrown, see
+        # https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
+        raise e
+
+    creds = json.loads(get_secret_value_response["SecretString"])
+
+    logging.info("Setting NGC credentials as environment variables.")
+    os.environ["NGC_CLI_API_KEY"] = creds.get("NGC_CLI_API_KEY", "")
+    os.environ["NGC_CLI_ORG"] = creds.get("NGC_CLI_ORG", "")
+    os.environ["NGC_CLI_TEAM"] = creds.get("NGC_CLI_TEAM", "")
+    os.environ["NGC_CLI_FORMAT_TYPE"] = creds.get("NGC_CLI_FORMAT_TYPE", "ascii")
+
+    return None
+
+
+def download_model_weights(
+    secret_name=os.environ.get("SM_SECRET_NAME", "NVIDIA_NGC_CREDS"),
+    model_name=os.environ.get("MODEL_NAME", "all"),
+    model_path=os.environ.get("MODEL_PATH", "/workspace/bionemo/models"),
+):
+    set_ngc_credentials(secret_name)
+    logging.info("Downloading pre-trained model checkpoint")
+    if not os.path.exists(model_path):
+        os.makedirs(model_path)
+
+    if not os.path.exists("artifact_paths.yaml"):
+        shutil.copy(
+            "/workspace/bionemo/artifact_paths.yaml",
+            os.getcwd(),
+        )
+    subprocess.run(
+        [
+            "/usr/bin/python",
+            "/workspace/bionemo/download_models.py",
+            model_name,
+            "--source",
+            "ngc",
+            "--download_dir",
+            model_path,
+        ],
+        check=True,
+    )
+    downloaded_nemo_files = [f for f in os.listdir(model_path) if f.endswith(".nemo")]
+    checkpoint_path = os.path.join(model_path, downloaded_nemo_files[0])
+    logging.info(f"Pre-trained model checkpoint downloaded to {checkpoint_path}")
+
+
+def start_server():
+    logging.info("Starting the inference server with {} workers.".format(model_server_workers))
+
+    # link the log streams to stdout/err so they will be logged to the container logs
+    subprocess.check_call(
+        ["/usr/bin/ln", "-sf", "/dev/stdout", "/var/log/nginx/access.log"]
+    )
+    subprocess.check_call(
+        ["/usr/bin/ln", "-sf", "/dev/stderr", "/var/log/nginx/error.log"]
+    )
+
+    download_model_weights()
+
+    config_path = parse_conf_path(os.environ.get("MODEL_NAME", "esm1nv"))
+
+    logging.info("Starting nginx")
+    nginx = subprocess.Popen(
+        [
+            "/usr/sbin/nginx",
+            "-c",
+            os.path.join(os.environ.get("BIONEMO_HOME"), "nginx.conf"),
+        ]
+    )
+    sleep(5)
+
+    logging.info("Starting gunicorn")
+    gunicorn = subprocess.Popen(
+        [
+            "/usr/local/bin/gunicorn",
+            "--timeout",
+            str(model_server_timeout),
+            "-k",
+            "sync",
+            "-b",
+            "unix:/tmp/gunicorn.sock",
+            "-w",
+            str(model_server_workers),
+            "wsgi:app",
+        ]
+    )
+    sleep(5)
+
+    logging.info("Starting pytriton inference wrapper")
+    pytriton = subprocess.Popen(
+        [
+            "/usr/bin/python",
+            "-m",
+            "bionemo.triton.inference_wrapper",
+            "--config-path",
+            config_path,
+        ]
+    )
+    sleep(5)
+
+    signal.signal(
+        signal.SIGTERM,
+        lambda a, b: sigterm_handler(nginx.pid, gunicorn.pid, pytriton.pid),
+    )
+
+    # If any subprocess exits, so do we.
+    pids = set([nginx.pid, gunicorn.pid, pytriton.pid])
+    while True:
+        pid, _ = os.wait()
+        if pid in pids:
+            break
+
+    sigterm_handler(nginx.pid, gunicorn.pid, pytriton.pid)
+    logging.info("Inference server exiting")
+
+
+# The main routine just invokes the start function.
+
+if __name__ == "__main__":
+    start_server()
