@@ -1,7 +1,7 @@
 # Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 
-FROM nvcr.io/nvidia/clara/bionemo-framework:1.2 as common
+FROM nvcr.io/nvidia/clara/bionemo-framework:1.5 as common
 
 ENV PYTHON=python3
 ENV PYTHON_VERSION=3.10.12
