@@ -145,7 +145,7 @@ def main(args):
         subprocess.run(
             [
                 "/usr/bin/python",
-                "/workspace/bionemo/download_models.py",
+                "/workspace/bionemo/download_artifacts.py",
                 parsed_model_name,
                 "--source",
                 "ngc",

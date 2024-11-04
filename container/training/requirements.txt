@@ -1,0 +1,14 @@
+accelerate==1.1.0
+fastai==2.7.18
+huggingface-hub<0.24.0
+numba
+opencv-python
+pandas
+pillow
+requests>=2.31.0
+sagemaker>=2,<3
+sagemaker-pytorch-training
+sagemaker-training
+scikit-learn
+shap
+smclarify

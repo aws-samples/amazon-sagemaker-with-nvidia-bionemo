@@ -1,7 +1,7 @@
 # Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 
-FROM nvcr.io/nvidia/clara/bionemo-framework:1.5 as common
+FROM nvcr.io/nvidia/clara/bionemo-framework:1.10 as common
 
 ENV PYTHON=python3
 ENV PYTHON_VERSION=3.10.12
@@ -36,6 +36,7 @@ ENV TQDM_POSITION=-1
 ENV MODEL_PATH $BIONEMO_HOME/models
 # makes AllToAll complete successfully. Update will be included in NCCL 2.20.*
 ENV NCCL_CUMEM_ENABLE=0
+ENV OFI_URI="https://github.com/aws/aws-ofi-nccl/releases/download/v1.8.0-aws/aws-ofi-nccl-1.8.0-aws.tar.gz"
 
 COPY changehostname.c /
 COPY start_with_right_hostname.sh /usr/local/bin/start_with_right_hostname.sh
@@ -55,30 +56,16 @@ RUN apt-get update \
     && rm -rf /tmp/efa \
     && rm -rf /tmp/aws-efa-installer-${EFA_VERSION}.tar.gz \
     && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
-    
+    && apt-get clean \
+    && wget -O /tmp/ofi-aws.tar.gz ${OFI_URI} \
+    && tar -xvzf /tmp/ofi-aws.tar.gz -C /usr/local/bin --no-same-owner \
+    && rm /tmp/ofi-aws.tar.gz
+
+COPY requirements.txt /
+
 RUN pip install --upgrade pip --no-cache-dir --trusted-host pypi.org --trusted-host files.pythonhosted.org \
     && pip install --no-cache-dir -U ${SMP_URL} \
-    && wget -O /tmp/ofi-aws.tar.gz https://github.com/aws/aws-ofi-nccl/releases/download/v1.8.0-aws/aws-ofi-nccl-1.8.0-aws.tar.gz \
-    && tar -xvzf /tmp/ofi-aws.tar.gz -C /usr/local/bin \
-    && rm /tmp/ofi-aws.tar.gz \
-    && pip install --no-cache-dir \
-    "accelerate==0.22.0" \
-    fastai  \
-    pillow \
-    opencv-python \
-    "requests>=2.31.0" \
-    && pip uninstall -y dataclasses \
-    && pip install --no-cache-dir torchtnt \
-    && pip install --no-cache-dir -U \
-    smclarify \
-    "sagemaker>=2,<3" \
-    sagemaker-pytorch-training \
-    sagemaker-training \
-    numba \
-    pandas \
-    shap \
-    scikit-learn \
+    && pip install --no-cache-dir -r /requirements.txt \
     && rm -rf /root/.cache | true \
     && rm "$HOME/.aws/config" \
     && chmod +x /usr/local/bin/start_with_right_hostname.sh

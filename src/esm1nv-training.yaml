@@ -10,10 +10,10 @@ trainer:
   # devices: 1 # number of GPUs or CPUs. Don't define here unless you want to override SM.
   # num_nodes: 1 # Number of instances. Don't define here unless you want to override SM.
   accelerator: gpu #gpu or cpu
-  precision: 16 #16 or 32
+  precision: 16-mixed #16-mixed or bf16-mixed
   logger: False # logger is provided by NeMo exp_manager
   enable_checkpointing: False # checkpointing is done by NeMo exp_manager
-  replace_sampler_ddp: False # use NeMo Megatron samplers
+  use_distributed_sampler: False # use NeMo Megatron samplers
   max_epochs: null # # use max_steps instead with NeMo Megatron model
   max_steps: 100 # consumed_samples = global_step * micro_batch_size * data_parallel_size * accumulate_grad_batches
   log_every_n_steps: 1 # number of interations between logging
@@ -54,7 +54,6 @@ model:
   micro_batch_size: 96 # NOTE: adjust to occupy ~ 90% of GPU memory
   tensor_model_parallel_size: 1 # model parallelism
   pipeline_model_parallel_size: 1 # model parallelism. If enabled, you need to set data.dynamic_padding to False as pipeline parallelism requires fixed-length padding.
-
   # model architecture
   seq_length: 512
   max_position_embeddings: ${.seq_length}
@@ -105,8 +104,12 @@ model:
     dataset:
       train: x000
       val: x001
-    modify_percent: 0.1 # Percentage of characters in a protein sequence to modify. (Modification means replacing with another amino acid or with a mask token)
-    perturb_percent: 0.5 # Of the modify_percent, what percentage of characters are to be replaced with another amino acid.
+    # These control the MLM token probabilities. The following settings are commonly used in literature.
+    modify_percent: 0.15 # Fraction of characters in a protein sequence to modify. 
+    perturb_percent: 0.1 # Of the modify_percent, what fraction of characters are to be replaced with another amino acid.
+    mask_percent: 0.8 # Of the modify_percent, what fraction of characters are to be replaced with a mask token.
+    identity_percent: 0.1 # Of the modify_percent, what fraction of characters are to be unchanged as the original amino acid.
+
     data_prefix: "" # must be null or ""
     num_workers: 1
     dataloader_type: single # cyclic
@@ -120,9 +123,6 @@ model:
     pin_memory: False
     index_mapping_dir: null # path to store cached indexing files (if empty, will be stored in the same directory as dataset_path)
     data_impl: "csv_mmap"
-    # Supported kwargs (with default values):
-    #     text_mmap (newline_int=10, header_lines=0, workers=None, sort_dataset_paths=True)
-    #     csv_mmap (newline_int=10, header_lines=0,workers=None, sort_dataset_paths=True, data_col=1, data_sep=",")
     data_impl_kwargs:
       csv_mmap:
         header_lines: 1
@@ -130,7 +130,6 @@ model:
         workers: ${model.data.num_workers} # number of workers when creating missing index files (null defaults to cpu_num // 2)
         sort_dataset_paths: True # if True datasets will be sorted by name
         data_sep: "," # string to split text into columns
-        # column number of csv to take values from, with the first column as zero
         data_col: 1
     use_upsampling: False # if the data should be upsampled to max number of steps in the training
     seed: ${model.seed} # Random seed

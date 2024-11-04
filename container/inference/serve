@@ -115,11 +115,12 @@ def download_model_weights(
     subprocess.run(
         [
             "/usr/bin/python",
-            "/workspace/bionemo/download_models.py",
+            "/workspace/bionemo/download_artifacts.py",
+            "--models",
             model_name,
             "--source",
             "ngc",
-            "--download_dir",
+            "--model_dir",
             model_path,
         ],
         check=True,
